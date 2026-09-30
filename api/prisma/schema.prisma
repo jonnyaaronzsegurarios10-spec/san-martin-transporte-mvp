@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PASSENGER
+  DRIVER
+  ADMIN
+}
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+enum DriverStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+enum VehicleStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  GRACE_PERIOD
+  EXPIRED
+  CANCELLED
+}
+enum RideStatus {
+  SEARCHING
+  MATCHED
+  DRIVER_ARRIVING
+  DRIVER_WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+enum ScheduledRideStatus {
+  PROGRAMMED
+  SEARCHING
+  DRIVER_ASSIGNED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+enum PaymentMethod {
+  CASH
+  YAPE
+  PLIN
+  TRANSFER
+}
+
+model User {
+  id String @id @default(cuid())
+  phone String @unique
+  name String
+  passwordHash String
+  role Role
+  status UserStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  driver Driver?
+  passenger Passenger?
+  ridesAsPassenger Ride[] @relation("passengerRides")
+  ridesAsDriver Ride[] @relation("driverRides")
+  ratings Rating[] @relation("ratingAuthor")
+  auditLogs AuditLog[]
+}
+model Passenger {
+  id String @id @default(cuid())
+  userId String @unique
+  vipPlanId String?
+  seatPreference String?
+  user User @relation(fields: [userId], references: [id])
+  vipPlan VipPlan? @relation(fields: [vipPlanId], references: [id])
+  scheduledRides ScheduledRide[]
+  ratings Rating[] @relation("passengerRatings")
+}
+model Driver {
+  id String @id @default(cuid())
+  userId String @unique
+  status DriverStatus @default(PENDING)
+  documentExpiresAt DateTime?
+  user User @relation(fields: [userId], references: [id])
+  vehicle Vehicle?
+  subscription DriverSubscription?
+  available Boolean @default(false)
+  lat Float?
+  lng Float?
+  lastLocationAt DateTime?
+  offers RideOffer[]
+}
+model Vehicle {
+  id String @id @default(cuid())
+  driverId String @unique
+  plate String @unique
+  make String
+  model String
+  color String
+  status VehicleStatus @default(PENDING)
+  type String @default("CAR")
+  driver Driver @relation(fields: [driverId], references: [id])
+}
+model City {
+  id String @id @default(cuid())
+  name String @unique
+  enabled Boolean @default(true)
+  tariff TariffConfig?
+  rides Ride[]
+}
+model TariffConfig {
+  id String @id @default(cuid())
+  cityId String @unique
+  baseFare Decimal @db.Decimal(10, 2)
+  perKm Decimal @db.Decimal(10, 2)
+  perMinute Decimal @db.Decimal(10, 2)
+  minimumFare Decimal @db.Decimal(10, 2)
+  surcharge Decimal @default(0) @db.Decimal(10, 2)
+  city City @relation(fields: [cityId], references: [id])
+}
+model DriverPlan {
+  id String @id @default(cuid())
+  name String
+  signupPrice Decimal @db.Decimal(10, 2)
+  monthlyPrice Decimal @db.Decimal(10, 2)
+  durationDays Int @default(30)
+  graceDays Int @default(0)
+  enabled Boolean @default(true)
+  subscriptions DriverSubscription[]
+}
+model DriverSubscription {
+  id String @id @default(cuid())
+  driverId String @unique
+  planId String
+  status SubscriptionStatus @default(PENDING)
+  startsAt DateTime?
+  endsAt DateTime?
+  driver Driver @relation(fields: [driverId], references: [id])
+  plan DriverPlan @relation(fields: [planId], references: [id])
+}
+model VipPlan {
+  id String @id @default(cuid())
+  name String
+  price Decimal @db.Decimal(10, 2)
+  durationDays Int
+  benefits Json
+  enabled Boolean @default(true)
+  passengers Passenger[]
+  scheduledRides ScheduledRide[]
+}
+model Ride {
+  id String @id @default(cuid())
+  passengerId String
+  driverId String?
+  cityId String
+  status RideStatus @default(SEARCHING)
+  pickupLat Float
+  pickupLng Float
+  destinationLat Float
+  destinationLng Float
+  estimatedFare Decimal? @db.Decimal(10, 2)
+  finalFare Decimal? @db.Decimal(10, 2)
+  fareSnapshot Json
+  paymentMethod PaymentMethod @default(CASH)
+  requestedAt DateTime @default(now())
+  acceptedAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  passenger User @relation("passengerRides", fields: [passengerId], references: [id])
+  driver User? @relation("driverRides", fields: [driverId], references: [id])
+  city City @relation(fields: [cityId], references: [id])
+  offers RideOffer[]
+  locations RideLocation[]
+  ratings Rating[]
+  statusHistory RideStatusHistory[]
+}
+model RideOffer {
+  id String @id @default(cuid())
+  rideId String
+  driverId String
+  status String @default("PENDING")
+  createdAt DateTime @default(now())
+  ride Ride @relation(fields: [rideId], references: [id])
+  driver Driver @relation(fields: [driverId], references: [id])
+  @@unique([rideId, driverId])
+}
+model RideLocation {
+  id String @id @default(cuid())
+  rideId String
+  actorId String
+  lat Float
+  lng Float
+  createdAt DateTime @default(now())
+  ride Ride @relation(fields: [rideId], references: [id])
+}
+model RideStatusHistory {
+  id String @id @default(cuid())
+  rideId String
+  status RideStatus
+  actorId String
+  createdAt DateTime @default(now())
+  ride Ride @relation(fields: [rideId], references: [id])
+}
+model Rating {
+  id String @id @default(cuid())
+  rideId String
+  authorId String
+  passengerId String?
+  score Int
+  comment String?
+  ride Ride @relation(fields: [rideId], references: [id])
+  author User @relation("ratingAuthor", fields: [authorId], references: [id])
+  passenger Passenger? @relation("passengerRatings", fields: [passengerId], references: [id])
+  @@unique([rideId, authorId])
+}
+model ScheduledRide {
+  id String @id @default(cuid())
+  passengerId String
+  vipPlanId String
+  pickupLat Float
+  pickupLng Float
+  destinationLat Float
+  destinationLng Float
+  scheduledFor DateTime
+  seatPreference String @default("ANY")
+  status ScheduledRideStatus @default(PROGRAMMED)
+  assignedDriverId String?
+  passenger Passenger @relation(fields: [passengerId], references: [id])
+  vipPlan VipPlan @relation(fields: [vipPlanId], references: [id])
+}
+model AuditLog {
+  id String @id @default(cuid())
+  actorId String?
+  action String
+  entity String
+  entityId String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  actor User? @relation(fields: [actorId], references: [id])
+}
